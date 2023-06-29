@@ -60,10 +60,5 @@ def turn_right():
 def main():
     move_forward()"""
     
-while robot.step(TIME_STEP) != -1:
-    image=camera.get.Image()
-    value_red = camera.imageGetRed(image, CAM_WIDTH, 0,0)
-    value_green = camera.imageGetGreen (image, CAM_WIDTH, 0,0)
-    value_blue = camera.imageGetBlue (image, CAM_WIDTH,0,0)
-    print("Camera: R", value_red, "G", value_green, "B", value_blue)
+
     
