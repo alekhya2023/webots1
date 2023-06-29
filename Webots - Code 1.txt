@@ -1,82 +1,124 @@
-from controller import Robot, Motor, DistanceSensor,Camera 
+import math
+import random
+from controller import Robot
+
+# Constants
 TIME_STEP = 64
-MAX_SPEED = 6.28
-CAM_WIDTH = 64
+WHEEL_RADIUS = 0.0205
+AXLE_LENGTH = 0.052
+ENCODER_RESOLUTION = 159.23
+DELTA = math.pi * 2
+RANGE = 1024 / 2
+
+
+# Function to compute odometry
+def compute_odometry():
+    l = left_motor.getPosition() * WHEEL_RADIUS
+    r = right_motor.getPosition() * WHEEL_RADIUS
+    da = (r - l) / AXLE_LENGTH
+    global X, Y, D
+    X += ((r + l) / 2) * math.cos(D + da)
+    Y += ((r + l) / 2) * math.sin(D + da)
+    D += da
+
+
+# Function to check if the goal is detected
+def goal_exist():
+    image = camera.getImageArray()
+    image_width = camera.getWidth()
+    image_height = camera.getHeight()
+    x_1 = -1
+    x_2 = -1
+    is_detected = -1
+
+    for x in range(image_width):
+        for y in range(image_height):
+            r, g, b = image[x][y]
+            if 140 <= r <= 255 and g == 0 and b == 0:
+                if is_detected == -1:
+                    x_1 = x
+                    is_detected = 0
+                else:
+                    x_2 = x
+
+    return {'x_1': x_1, 'x_2': x_2, 'is_detected': is_detected}
+
+
+# Initialize the robot
 robot = Robot()
-leftMotor = robot.getDevice('left wheel motor')
-rightMotor = robot.getDevice('right wheel motor')
-leftMotor.setPosition(float('inf'))
-rightMotor.setPosition(float('inf'))
-rightSensor1 = robot.getDevice('ps0')
-rightSensor2 = robot.getDevice('ps1')
-leftSensor1 = robot.getDevice('ps7')
-leftSensor2 = robot.getDevice('ps6')
-camera = robot.getDevice('camera')
+
+# Get motors and enable position sensors
+left_motor = robot.getMotor("left wheel motor")
+right_motor = robot.getMotor("right wheel motor")
+left_motor.setPosition(float('inf'))
+right_motor.setPosition(float('inf'))
+
+# Get distance sensors
+distance_sensors = []
+for i in range(8):
+    distance_sensor = robot.getDistanceSensor(f"ps{i}")
+    distance_sensor.enable(TIME_STEP)
+    distance_sensors.append(distance_sensor)
+
+# Get camera and enable it
+camera = robot.getCamera("camera")
 camera.enable(TIME_STEP)
 
+# Variables
+X = 0
+Y = 0
+D = 0
+TIME = 0
 
-rightSensor1.enable(TIME_STEP)
-rightSensor2.enable(TIME_STEP)
-leftSensor1.enable(TIME_STEP)
-leftSensor2.enable(TIME_STEP)
-
-def get_left_sensor():
-    blocked = False
-    value1 = leftSensor1.getValue()
-    value2 = leftSensor2.getValue()
-    average = (value1 + value2) / 2.0
-    #print("Left", average, value1, value2) # DEBUG
-    if average > DIST_LIMIT:
-        blocked = True
-    else:
-        blocked = False
-    return blocked
-
-"""def get_right_sensor():
-    blocked = False
-    value1 = rightSensor1.getValue()
-    value2 = rightSensor2.getValue()
-    average = (value1 + value2) / 2.0
-    #print("Right", average, value1, value2) # DEBUG
-    if average > DIST_LIMIT:
-        blocked = True
-    else:
-        blocked = False
-    return blocked
-    
-def move_forward():
-	leftMotor.setVelocity(0.5 * MAX_SPEED)
-	rightMotor.setVelocity(0.5 * MAX_SPEED)
-def move_backward():
-	leftMotor.setVelocity(-0.5 * MAX_SPEED)
-	rightMotor.setVelocity(-0.5 * MAX_SPEED)
-def turn_left():
-	leftMotor.setVelocity(0.1 * MAX_SPEED)
-	rightMotor.setVelocity(0.5 * MAX_SPEED)
-def turn_right():
-	leftMotor.setVelocity(0.5 * MAX_SPEED)
-	rightMotor.setVelocity(0.1 * MAX_SPEED)
-	
-def main():
-    move_forward()"""
-    
+# Main loop
 while robot.step(TIME_STEP) != -1:
-    image=camera.get.Image()
-    value_red = camera.imageGetRed(image, CAM_WIDTH, 0,0)
-    value_green = camera.imageGetGreen (image, CAM_WIDTH, 0,0)
-    value_blue = camera.imageGetBlue (image, CAM_WIDTH,0,0)
-    print("Camera: R", value_red, "G", value_green, "B", value_blue)
+    # State 0: Rotate and check around
+    if state == 0:
+        left_motor.setVelocity(-1)
+        right_motor.setVelocity(1)
+        OB = goal_exist()
 
-from controller import CameraRecognitionObject
+        if OB['is_detected'] != -1:
+            state = 1
 
-class CameraRecognitionObject:
-    def get_id(self):
-    def get_position(self):
-    def get_orientation(self):
-    def get_size(self):
-    def get_position_on_image(self):
-    def get_size_on_image(self):
-    def get_number_of_colors(self):
-    def get_colors(self):
-    def get_model(self):
-    
+        if D > DELTA:
+            state = 3
+
+    # State 1: Rotate to goal
+    elif state == 1:
+        image_width = camera.getWidth()
+        OB = goal_exist()
+
+        if OB['is_detected'] == -1:
+            compute_odometry()
+            state = 0
+
+        half = (OB['x_2'] - OB['x_1']) / 2
+        center = image_width / 2
+
+        if center - OB['x_1'] <= half:
+            state = 2
+
+        direction = 1 if OB['x_1'] - center >= 0 else -1
+        left_motor.setVelocity(direction * 0.05)
+        right_motor.setVelocity(-direction * 0.05)
+
+    # State 2: Move to goal
+    elif state == 2:
+        sensors_value = [sensor.getValue() for sensor in distance_sensors]
+        left_motor.setVelocity(1)
+        right_motor.setVelocity(1)
+
+        if min(sensors_value) < RANGE:
+            state = 3
+
+    # State 3: Random move
+    elif state == 3:
+        left_motor.setVelocity(random.uniform(-1, 1))
+        right_motor.setVelocity(random.uniform(-1, 1))
+
+        if TIME % 30 == 0:
+            state = 0
+
+    TIME += 1
+
